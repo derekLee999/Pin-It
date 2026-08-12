@@ -2,7 +2,7 @@
 // PinIt — keep any window always on top (Win+Ctrl+T), C++/Qt port.
 //
 // Wires the pieces together:
-//   GlobalHotkeyManager  -> system-wide hotkeys (WM_HOTKEY)
+//   GlobalHotkeyManager  -> system-wide hotkeys (WH_KEYBOARD_LL hook)
 //   PinManager           -> Win32 always-on-top + opacity + persistence
 //   MainWindow           -> UI + system tray
 //
@@ -13,6 +13,7 @@
 #include <QIcon>
 #include <QSystemTrayIcon>
 #include <QSessionManager>
+#include <QTranslator>
 
 #include "pinmanager.h"
 #include "globalhotkey.h"
@@ -21,55 +22,55 @@
 #include "logging.h"
 #include "version.h"
 
-// Warm "paper" theme — ported from the original PinIt CSS variables.
+// Blue theme based on #2D71FB accent color.
 static const char *kStyleSheet = R"qss(
-QWidget#central { background: #f8f6f2; }
-QDialog { background: #f8f6f2; }
-QLabel { color: #2a2622; font-family: "Segoe UI"; }
+QWidget#central { background: #f5f7fa; }
+QDialog { background: #f5f7fa; }
+QLabel { color: #1a1a2e; font-family: "Segoe UI"; }
 
-QLabel[role="title"]   { font-size: 17px; font-weight: 700; color: #2a2622; }
-QLabel[role="section"] { font-size: 11px; font-weight: 700; color: #6b6760;
+QLabel[role="title"]   { font-size: 17px; font-weight: 700; color: #1a1a2e; }
+QLabel[role="section"] { font-size: 11px; font-weight: 700; color: #6b7280;
                          letter-spacing: 1px; }
-QLabel[role="desc"]    { color: #6b6760; font-size: 12px; }
-QLabel[role="muted"]   { color: #6b6760; font-size: 12px; }
+QLabel[role="desc"]    { color: #6b7280; font-size: 12px; }
+QLabel[role="muted"]   { color: #6b7280; font-size: 12px; }
 
 QLabel[role="key"] {
-    background: #f0ede6; border: 1px solid rgba(0,0,0,0.12);
+    background: #e8f0fe; border: 1px solid rgba(45,113,251,0.15);
     border-radius: 5px; padding: 3px 9px;
-    color: #2a2622; font-weight: 700; font-size: 11px;
+    color: #1a1a2e; font-weight: 700; font-size: 11px;
 }
-QLabel[role="plus"] { color: #9a948a; font-size: 12px; }
+QLabel[role="plus"] { color: #9ca3af; font-size: 12px; }
 
 QFrame[role="card"] {
-    background: #ffffff; border: 1px solid rgba(0,0,0,0.08);
+    background: #ffffff; border: 1px solid rgba(0,0,0,0.06);
     border-radius: 12px;
 }
 
 QPushButton {
-    background: #ffffff; border: 1px solid rgba(0,0,0,0.12);
-    border-radius: 8px; padding: 7px 14px; color: #2a2622; font-size: 12px;
+    background: #ffffff; border: 1px solid rgba(0,0,0,0.1);
+    border-radius: 8px; padding: 7px 14px; color: #1a1a2e; font-size: 12px;
 }
-QPushButton:hover { background: #f0ede6; }
+QPushButton:hover { background: #e8f0fe; }
 
 QPushButton#primary {
-    background: #c49464; border: none; color: #ffffff; font-weight: 700;
+    background: #2D71FB; border: none; color: #ffffff; font-weight: 700;
     padding: 9px 14px;
 }
-QPushButton#primary:hover { background: #b6855a; }
+QPushButton#primary:hover { background: #2563D8; }
 
 QPushButton#unpin {
-    background: transparent; border: 1px solid rgba(0,0,0,0.12);
-    border-radius: 5px; color: #9a948a; font-weight: 700; font-size: 12px;
+    background: transparent; border: 1px solid rgba(0,0,0,0.1);
+    border-radius: 5px; color: #9ca3af; font-weight: 700; font-size: 12px;
     padding: 0;
 }
-QPushButton#unpin:hover { background: #f6e3da; color: #b6855a; border-color: #c49464; }
+QPushButton#unpin:hover { background: #e8f0fe; color: #2D71FB; border-color: #2D71FB; }
 
-QCheckBox { color: #5a564e; font-size: 12px; spacing: 7px; }
+QCheckBox { color: #4b5563; font-size: 12px; spacing: 7px; }
 
-QSlider::groove:horizontal { height: 4px; background: #e6e2da; border-radius: 2px; }
-QSlider::sub-page:horizontal { background: #c49464; border-radius: 2px; }
+QSlider::groove:horizontal { height: 4px; background: #e5e7eb; border-radius: 2px; }
+QSlider::sub-page:horizontal { background: #2D71FB; border-radius: 2px; }
 QSlider::handle:horizontal {
-    background: #ffffff; border: 1px solid #c49464; width: 14px; height: 14px;
+    background: #ffffff; border: 1px solid #2D71FB; width: 14px; height: 14px;
     margin: -6px 0; border-radius: 7px;
 }
 QScrollArea { background: transparent; border: none; }
@@ -108,6 +109,10 @@ int main(int argc, char *argv[])
     PinManager manager;
     MainWindow window(&manager);
 
+    // Apply the saved border setting before restoring pins.
+    const persistence::UserSettings savedSettings = persistence::loadSettings();
+    manager.setBorderEnabled(savedSettings.enableBorder);
+
     // On quit, un-pin/un-fade any windows we touched so nothing is left stuck
     // always-on-top or translucent.
     QObject::connect(&app, &QApplication::aboutToQuit, &manager,
@@ -130,7 +135,6 @@ int main(int argc, char *argv[])
     });
 
     GlobalHotkeyManager hotkeys;
-    app.installNativeEventFilter(&hotkeys);
 
     QObject::connect(&hotkeys, &GlobalHotkeyManager::togglePin,
                      &manager, &PinManager::toggleForeground);

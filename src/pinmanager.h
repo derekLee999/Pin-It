@@ -12,6 +12,7 @@
 #include <cstdint>
 
 class QTimer;
+class BorderManager;
 
 struct PinnedWindow {
     intptr_t hwnd = 0;
@@ -49,6 +50,9 @@ public:
     // Restore pins saved from a previous session (called once at startup).
     void restoreSaved();
 
+    // Enable/disable the red border overlay on pinned windows.
+    void setBorderEnabled(bool enabled);
+
     // On exit: undo always-on-top + opacity on every pinned foreign window so
     // they aren't left stuck topmost/translucent. After a manual quit the pins
     // are then forgotten (clear memory + pinned.json) so a manual relaunch
@@ -78,5 +82,7 @@ private:
     QHash<intptr_t, PinnedWindow> m_pinned;
     QTimer *m_timer = nullptr;
     QTimer *m_persistTimer = nullptr;  // single-shot debounce for persist()
+    BorderManager *m_borderManager = nullptr;
+    bool    m_borderEnabled = true;
     bool    m_sessionEnding = false;   // true once Windows is logging off/shutting down
 };

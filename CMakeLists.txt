@@ -36,6 +36,10 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/installer/version.iss.in"
 set_property(SOURCE resources/app.rc APPEND PROPERTY
             OBJECT_DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/generated/version.h")
 
+# --- Translations ---------------------------------------------------------
+# Find Qt linguist tools for compiling .ts -> .qm
+find_package(Qt6 REQUIRED COMPONENTS LinguistTools)
+
 # --- Executable -----------------------------------------------------------
 # The WIN32 flag makes this a GUI app (no console window pops up on launch).
 qt_add_executable(PinIt WIN32
@@ -48,11 +52,20 @@ qt_add_executable(PinIt WIN32
     src/logging.h           src/logging.cpp
     src/shortcuts.h         src/shortcuts.cpp
     src/shortcutsdialog.h   src/shortcutsdialog.cpp
+    src/toast.h             src/toast.cpp
+    src/borderoverlay.h     src/borderoverlay.cpp
+    src/bordermanager.h     src/bordermanager.cpp
     resources/resources.qrc
     resources/app.rc
 )
 
 target_link_libraries(PinIt PRIVATE Qt6::Widgets Qt6::Network)
+
+# Compile translations and embed them as resources.
+qt_add_translations(PinIt
+    TS_FILES translations/pinit_zh_CN.ts
+    RESOURCE_PREFIX "/i18n"
+)
 
 # Win32 APIs we call directly: window mgmt, DWM, registry (autostart),
 # winmm for PlaySound (the pin tick).

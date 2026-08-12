@@ -3,9 +3,7 @@
 
 #include <windows.h>
 
-namespace {
-
-// Hotkey ids passed to RegisterHotKey; also matched in the event filter.
+// Hotkey ids — used as keys in the m_hotkeys hash and to dispatch signals.
 enum HotkeyId {
     IdTogglePin    = 1,
     IdOpacityUp    = 2,
@@ -13,7 +11,8 @@ enum HotkeyId {
     IdToggleWindow = 4,
 };
 
-} // namespace
+// Singleton pointer so the static hook callback can reach the instance.
+GlobalHotkeyManager *GlobalHotkeyManager::s_instance = nullptr;
 
 GlobalHotkeyManager::GlobalHotkeyManager(QObject *parent)
     : QObject(parent)
@@ -23,16 +22,6 @@ GlobalHotkeyManager::GlobalHotkeyManager(QObject *parent)
 GlobalHotkeyManager::~GlobalHotkeyManager()
 {
     unregisterAll();
-}
-
-bool GlobalHotkeyManager::registerOne(int id, const QString &shortcut)
-{
-    unsigned mods = 0, vk = 0;
-    if (!shortcuts::parse(shortcut, mods, vk))
-        return false;
-
-    // MOD_NOREPEAT: holding the keys fires once, not a stream.
-    return RegisterHotKey(nullptr, id, mods | MOD_NOREPEAT, vk) != FALSE;
 }
 
 bool GlobalHotkeyManager::registerAll(const persistence::ShortcutConfig &c)
@@ -50,35 +39,121 @@ bool GlobalHotkeyManager::registerAll(const persistence::ShortcutConfig &c)
     };
 
     for (const Entry &e : entries) {
-        if (registerOne(e.id, e.shortcut))
+        unsigned mods = 0, vk = 0;
+        if (shortcuts::parse(e.shortcut, mods, vk)) {
+            m_hotkeys.insert(e.id, {mods, vk});
             m_anyRegistered = true;
-        else
+        } else {
             m_failed << QString::fromLatin1(e.label);
+        }
     }
+
+    if (m_anyRegistered && !installHook()) {
+        m_failed.clear();
+        m_failed << QStringLiteral("Keyboard hook");
+        m_anyRegistered = false;
+    }
+
     return m_anyRegistered;
 }
 
 void GlobalHotkeyManager::unregisterAll()
 {
-    for (int id : { IdTogglePin, IdOpacityUp, IdOpacityDown, IdToggleWindow })
-        UnregisterHotKey(nullptr, id);
+    removeHook();
+    m_hotkeys.clear();
+    m_anyRegistered = false;
 }
 
-bool GlobalHotkeyManager::nativeEventFilter(const QByteArray &eventType,
-                                            void *message, qintptr *result)
-{
-    Q_UNUSED(eventType);
-    Q_UNUSED(result);
+// --- Low-level keyboard hook -----------------------------------------------
 
-    MSG *msg = static_cast<MSG *>(message);
-    if (msg->message != WM_HOTKEY)
+bool GlobalHotkeyManager::installHook()
+{
+    if (m_hook)
+        return true;
+
+    s_instance = this;
+    m_hook = SetWindowsHookExW(WH_KEYBOARD_LL, keyboardHookProc,
+                               GetModuleHandleW(nullptr), 0);
+    if (!m_hook) {
+        s_instance = nullptr;
+        qWarning("GlobalHotkeyManager: SetWindowsHookExW failed (error %lu)",
+                 GetLastError());
+    }
+    return m_hook != nullptr;
+}
+
+void GlobalHotkeyManager::removeHook()
+{
+    if (m_hook) {
+        UnhookWindowsHookEx(m_hook);
+        m_hook = nullptr;
+    }
+    if (s_instance == this)
+        s_instance = nullptr;
+}
+
+bool GlobalHotkeyManager::matchModifiers(unsigned requiredMods) const
+{
+    // GetAsyncKeyState returns the live state of each modifier, which is
+    // more reliable than tracking key-up/key-down in the hook because we
+    // might miss events if the app starts while a modifier is already held.
+    bool win   = (GetAsyncKeyState(VK_LWIN)   & 0x8000) ||
+                 (GetAsyncKeyState(VK_RWIN)   & 0x8000);
+    bool ctrl  = (GetAsyncKeyState(VK_LCONTROL) & 0x8000) ||
+                 (GetAsyncKeyState(VK_RCONTROL) & 0x8000);
+    bool alt   = (GetAsyncKeyState(VK_LMENU)  & 0x8000) ||
+                 (GetAsyncKeyState(VK_RMENU)  & 0x8000);
+    bool shift = (GetAsyncKeyState(VK_LSHIFT) & 0x8000) ||
+                 (GetAsyncKeyState(VK_RSHIFT) & 0x8000);
+
+    if ((requiredMods & MOD_WIN)     && !win)   return false;
+    if ((requiredMods & MOD_CONTROL) && !ctrl)  return false;
+    if ((requiredMods & MOD_ALT)     && !alt)   return false;
+    if ((requiredMods & MOD_SHIFT)   && !shift) return false;
+
+    // Ensure no EXTRA modifiers are held (e.g. user pressed Win+Ctrl+Shift+T
+    // but the shortcut is only Win+Ctrl+T).
+    if (!(requiredMods & MOD_WIN)     && win)   return false;
+    if (!(requiredMods & MOD_CONTROL) && ctrl)  return false;
+    if (!(requiredMods & MOD_ALT)     && alt)   return false;
+    if (!(requiredMods & MOD_SHIFT)   && shift) return false;
+
+    return true;
+}
+
+bool GlobalHotkeyManager::processKey(WPARAM wParam, unsigned vk)
+{
+    // Only act on key-down (not key-up, not repeat).
+    if (wParam != WM_KEYDOWN && wParam != WM_SYSKEYDOWN)
         return false;
 
-    switch (msg->wParam) {
-    case IdTogglePin:    emit togglePin();    return true;
-    case IdOpacityUp:    emit opacityUp();    return true;
-    case IdOpacityDown:  emit opacityDown();  return true;
-    case IdToggleWindow: emit toggleWindow(); return true;
-    default:             return false;
+    for (auto it = m_hotkeys.cbegin(); it != m_hotkeys.cend(); ++it) {
+        if (it->vk == vk && matchModifiers(it->mods)) {
+            // Emit the corresponding signal.
+            switch (it.key()) {
+            case IdTogglePin:    emit togglePin();    break;
+            case IdOpacityUp:    emit opacityUp();    break;
+            case IdOpacityDown:  emit opacityDown();  break;
+            case IdToggleWindow: emit toggleWindow(); break;
+            }
+            return true;   // consume the key — system never sees it
+        }
     }
+    return false;
+}
+
+LRESULT CALLBACK GlobalHotkeyManager::keyboardHookProc(int nCode, WPARAM wParam,
+                                                        LPARAM lParam)
+{
+    if (nCode >= 0 && s_instance) {
+        const KBDLLHOOKSTRUCT *kb = reinterpret_cast<const KBDLLHOOKSTRUCT *>(lParam);
+        unsigned vk = kb->vkCode;
+
+        // Ignore injected events to avoid feedback loops.
+        if (!(kb->flags & LLKHF_INJECTED)) {
+            if (s_instance->processKey(wParam, vk))
+                return 1;   // swallow the key
+        }
+    }
+    return CallNextHookEx(nullptr, nCode, wParam, lParam);
 }

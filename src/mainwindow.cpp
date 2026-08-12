@@ -3,6 +3,7 @@
 #include "winpin.h"
 #include "shortcuts.h"
 #include "shortcutsdialog.h"
+#include "toast.h"
 
 #include <QApplication>
 #include <QVBoxLayout>
@@ -27,6 +28,7 @@
 #include <QMessageBox>
 #include <QColor>
 #include <QCursor>
+#include <QLocale>
 
 #include "version.h"
 
@@ -113,6 +115,25 @@ MainWindow::MainWindow(PinManager *manager, QWidget *parent)
 
     m_settings = persistence::loadSettings();
 
+    // Load translation based on saved setting or system UI language.
+    QString lang = m_settings.language;
+    if (lang.isEmpty()) {
+        const QStringList uiLangs = QLocale::system().uiLanguages();
+        for (const QString &uiLang : uiLangs) {
+            if (uiLang.startsWith(QStringLiteral("zh"), Qt::CaseInsensitive)) {
+                lang = QStringLiteral("zh_CN");
+                break;
+            }
+        }
+    }
+    if (lang == QStringLiteral("zh_CN")) {
+        if (m_translator.load(QStringLiteral(":/i18n/pinit_zh_CN.qm")))
+            qApp->installTranslator(&m_translator);
+        m_settings.language = lang;
+    }
+
+    m_toast = new Toast;
+
     buildUi();
     buildTray();
     rebuildList();
@@ -147,24 +168,48 @@ void MainWindow::buildUi()
     titleBox->setSpacing(0);
     auto *title = new QLabel(QStringLiteral("PinIt"));
     title->setProperty("role", "title");
-    auto *tagline = new QLabel(tr("Keep any window always on top"));
-    tagline->setProperty("role", "muted");
+    m_tagline = new QLabel(tr("Keep any window always on top"));
+    m_tagline->setProperty("role", "muted");
     titleBox->addWidget(title);
-    titleBox->addWidget(tagline);
+    titleBox->addWidget(m_tagline);
     header->addLayout(titleBox);
     header->addStretch();
+
+    // Language switcher in the top-right corner.
+    m_langLabel = new QLabel;
+    m_langLabel->setTextFormat(Qt::RichText);
+    m_langLabel->setCursor(Qt::PointingHandCursor);
+    m_langLabel->setStyleSheet(QStringLiteral(
+        "color: #2D71FB; font-size: 12px; font-weight: 600; padding: 2px 6px;"));
+    updateLanguageLabel();
+    connect(m_langLabel, &QLabel::linkActivated, this, [this](const QString &) {
+        // Determine current effective language.
+        bool isZh = m_settings.language == QStringLiteral("zh_CN");
+        if (m_settings.language.isEmpty()) {
+            const QStringList uiLangs = QLocale::system().uiLanguages();
+            for (const QString &uiLang : uiLangs) {
+                if (uiLang.startsWith(QStringLiteral("zh"), Qt::CaseInsensitive)) {
+                    isZh = true;
+                    break;
+                }
+            }
+        }
+        switchLanguage(isZh ? QStringLiteral("en") : QStringLiteral("zh_CN"));
+    });
+    header->addWidget(m_langLabel);
+
     root->addLayout(header);
 
     // --- Pin button ----------------------------------------------------------
-    auto *addBtn = new QPushButton(tr("+   Pin a window…"));
-    addBtn->setObjectName(QStringLiteral("primary"));
-    connect(addBtn, &QPushButton::clicked, this, &MainWindow::addWindowDialog);
-    root->addWidget(addBtn);
+    m_addBtn = new QPushButton(tr("+   Pin a window…"));
+    m_addBtn->setObjectName(QStringLiteral("primary"));
+    connect(m_addBtn, &QPushButton::clicked, this, &MainWindow::addWindowDialog);
+    root->addWidget(m_addBtn);
 
     // --- SHORTCUTS -----------------------------------------------------------
-    auto *scLabel = new QLabel(tr("SHORTCUTS"));
-    scLabel->setProperty("role", "section");
-    root->addWidget(scLabel);
+    m_shortcutsLabel = new QLabel(tr("SHORTCUTS"));
+    m_shortcutsLabel->setProperty("role", "section");
+    root->addWidget(m_shortcutsLabel);
 
     auto *scCard = makeCard();
     auto *scv = new QVBoxLayout(scCard);
@@ -174,9 +219,9 @@ void MainWindow::buildUi()
     fillShortcutRows(scv);
     root->addWidget(scCard);
 
-    auto *editShortcuts = new QPushButton(tr("Edit shortcuts…"));
-    connect(editShortcuts, &QPushButton::clicked, this, &MainWindow::openShortcutsDialog);
-    root->addWidget(editShortcuts, 0, Qt::AlignLeft);
+    m_editShortcutsBtn = new QPushButton(tr("Edit shortcuts…"));
+    connect(m_editShortcutsBtn, &QPushButton::clicked, this, &MainWindow::openShortcutsDialog);
+    root->addWidget(m_editShortcutsBtn, 0, Qt::AlignLeft);
 
     // --- PINNED (n) ----------------------------------------------------------
     m_pinnedHeader = new QLabel(tr("PINNED (0)"));
@@ -200,15 +245,15 @@ void MainWindow::buildUi()
     auto *ec = new QVBoxLayout(m_emptyCard);
     ec->setContentsMargins(14, 16, 14, 16);
     ec->setSpacing(8);
-    auto *emptyText = new QLabel(tr("No windows pinned"));
-    emptyText->setProperty("role", "muted");
-    emptyText->setAlignment(Qt::AlignCenter);
-    ec->addWidget(emptyText);
+    m_emptyText = new QLabel(tr("No windows pinned"));
+    m_emptyText->setProperty("role", "muted");
+    m_emptyText->setAlignment(Qt::AlignCenter);
+    ec->addWidget(m_emptyText);
     auto *hintRow = new QHBoxLayout;
     hintRow->addStretch();
-    auto *use = new QLabel(tr("Use"));
-    use->setProperty("role", "muted");
-    hintRow->addWidget(use);
+    m_useLabel = new QLabel(tr("Use"));
+    m_useLabel->setProperty("role", "muted");
+    hintRow->addWidget(m_useLabel);
     const QStringList toggleKeys = shortcuts::displayTokens(m_settings.shortcuts.togglePin);
     for (int i = 0; i < toggleKeys.size(); ++i) {
         if (i > 0)
@@ -227,6 +272,15 @@ void MainWindow::buildUi()
         persistence::saveSettings(m_settings);
     });
     root->addWidget(m_soundBox);
+
+    m_borderBox = new QCheckBox(tr("Show border when pinning"));
+    m_borderBox->setChecked(m_settings.enableBorder);
+    connect(m_borderBox, &QCheckBox::toggled, this, [this](bool on) {
+        m_settings.enableBorder = on;
+        m_manager->setBorderEnabled(on);
+        persistence::saveSettings(m_settings);
+    });
+    root->addWidget(m_borderBox);
 
     m_autostartBox = new QCheckBox(tr("Start PinIt with Windows"));
     m_autostartBox->setChecked(m_settings.startWithWindows);
@@ -416,11 +470,11 @@ void MainWindow::rebuildList()
 void MainWindow::addWindowDialog()
 {
     QDialog dlg(this);
-    dlg.setWindowTitle(tr("Pin a window"));
+    dlg.setWindowTitle(tr("Pin windows"));
     dlg.setWindowIcon(appIcon());
     dlg.resize(400, 440);
     auto *l = new QVBoxLayout(&dlg);
-    auto *prompt = new QLabel(tr("Choose a window to keep on top:"), &dlg);
+    auto *prompt = new QLabel(tr("Select windows to keep on top:"), &dlg);
     l->addWidget(prompt);
 
     auto *list = new QListWidget(&dlg);
@@ -436,21 +490,29 @@ void MainWindow::addWindowDialog()
             QStringLiteral("%1   —   %2").arg(displayTitle(w.title), w.processName), list);
         item->setToolTip(w.title);
         item->setData(Qt::UserRole, QVariant::fromValue<qlonglong>(w.hwnd));
+        item->setCheckState(Qt::Unchecked);
     }
     l->addWidget(list, 1);
+
+    // Clicking anywhere on the row toggles the checkbox.
+    connect(list, &QListWidget::itemClicked, [](QListWidgetItem *item) {
+        item->setCheckState(item->checkState() == Qt::Checked ? Qt::Unchecked : Qt::Checked);
+    });
 
     auto *buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     l->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
-    connect(list, &QListWidget::itemDoubleClicked, &dlg, &QDialog::accept);
 
     if (dlg.exec() == QDialog::Accepted) {
-        if (QListWidgetItem *sel = list->currentItem()) {
-            const intptr_t hwnd =
-                static_cast<intptr_t>(sel->data(Qt::UserRole).toLongLong());
-            m_manager->pin(hwnd);
+        for (int i = 0; i < list->count(); ++i) {
+            QListWidgetItem *item = list->item(i);
+            if (item->checkState() == Qt::Checked) {
+                const intptr_t hwnd =
+                    static_cast<intptr_t>(item->data(Qt::UserRole).toLongLong());
+                m_manager->pin(hwnd);
+            }
         }
     }
 }
@@ -539,9 +601,7 @@ void MainWindow::showFromTray()
 
 void MainWindow::notify(const QString &message)
 {
-    if (m_tray && m_tray->isVisible())
-        m_tray->showMessage(QStringLiteral("PinIt"), message,
-                            QSystemTrayIcon::Information, 2500);
+    m_toast->show(message);
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -552,10 +612,8 @@ void MainWindow::closeEvent(QCloseEvent *event)
         if (!m_settings.hasSeenTrayNotice) {
             m_settings.hasSeenTrayNotice = true;
             persistence::saveSettings(m_settings);
-            m_tray->showMessage(
-                QStringLiteral("PinIt"),
-                tr("PinIt is still running in the tray. Right-click the icon to quit."),
-                QSystemTrayIcon::Information, 3000);
+            m_toast->show(tr("PinIt is still running in the tray. "
+                             "Right-click the icon to quit."), 3000);
         }
     } else {
         // No system tray to live in — closing the window must actually quit,
@@ -564,4 +622,50 @@ void MainWindow::closeEvent(QCloseEvent *event)
         event->accept();
         QCoreApplication::quit();
     }
+}
+
+void MainWindow::switchLanguage(const QString &lang)
+{
+    m_settings.language = lang;
+    persistence::saveSettings(m_settings);
+
+    // Remove existing translator first.
+    qApp->removeTranslator(&m_translator);
+
+    if (lang == QStringLiteral("zh_CN")) {
+        if (m_translator.load(QStringLiteral(":/i18n/pinit_zh_CN.qm")))
+            qApp->installTranslator(&m_translator);
+    }
+
+    updateLanguageLabel();
+
+    // Retranslate all manually created UI strings.
+    m_tagline->setText(tr("Keep any window always on top"));
+    m_addBtn->setText(tr("+   Pin a window…"));
+    m_shortcutsLabel->setText(tr("SHORTCUTS"));
+    m_editShortcutsBtn->setText(tr("Edit shortcuts…"));
+    m_pinnedHeader->setText(tr("PINNED (%1)").arg(m_manager->pinnedCount()));
+    m_emptyText->setText(tr("No windows pinned"));
+    m_useLabel->setText(tr("Use"));
+    m_soundBox->setText(tr("Play a sound when pinning"));
+    m_borderBox->setText(tr("Show border when pinning"));
+    m_autostartBox->setText(tr("Start PinIt with Windows"));
+    rebuildList();
+    fillShortcutRows(m_shortcutsLayout);
+}
+
+void MainWindow::updateLanguageLabel()
+{
+    bool isZh = m_settings.language == QStringLiteral("zh_CN");
+    if (m_settings.language.isEmpty()) {
+        const QStringList uiLangs = QLocale::system().uiLanguages();
+        for (const QString &uiLang : uiLangs) {
+            if (uiLang.startsWith(QStringLiteral("zh"), Qt::CaseInsensitive)) {
+                isZh = true;
+                break;
+            }
+        }
+    }
+    m_langLabel->setText(isZh ? QStringLiteral("<a href=\"#\">EN</a>")
+                              : QStringLiteral("<a href=\"#\">中文</a>"));
 }

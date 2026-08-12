@@ -1,6 +1,7 @@
 #include "pinmanager.h"
 #include "winpin.h"
 #include "persistence.h"
+#include "bordermanager.h"
 
 #include <QTimer>
 #include <QSet>
@@ -13,6 +14,8 @@ inline void *H(intptr_t h) { return reinterpret_cast<void *>(h); }
 PinManager::PinManager(QObject *parent)
     : QObject(parent)
 {
+    m_borderManager = new BorderManager(this);
+
     // Windows 11's compositor occasionally strips the topmost flag. Rather
     // than wiring a SetWinEventHook callback, we re-assert it on a timer and
     // sweep out windows that have since closed. Cheap and robust.
@@ -78,6 +81,8 @@ bool PinManager::pin(intptr_t hwnd, bool announce)
     w.opacity = 100;
     w.wasLayered = winpin::isLayered(H(hwnd));   // remember its original style
     m_pinned.insert(hwnd, w);
+    if (m_borderEnabled)
+        m_borderManager->attach(hwnd);
 
     persist();
     updateTimer();
@@ -108,6 +113,7 @@ bool PinManager::unpin(intptr_t hwnd)
         winpin::removeTopmost(H(hwnd));
     }
 
+    m_borderManager->detach(hwnd);
     m_pinned.remove(hwnd);
     persist();
     updateTimer();
@@ -183,8 +189,10 @@ void PinManager::reenforce()
     }
 
     if (!stale.isEmpty()) {
-        for (intptr_t h : stale)
+        for (intptr_t h : stale) {
+            m_borderManager->detach(h);
             m_pinned.remove(h);
+        }
         persist();
         updateTimer();
         emit pinsChanged();
@@ -193,6 +201,8 @@ void PinManager::reenforce()
 
 void PinManager::restoreAllWindows()
 {
+    m_borderManager->detachAll();
+
     int restored = 0;
     for (auto it = m_pinned.begin(); it != m_pinned.end(); ++it) {
         if (winpin::isValidWindow(H(it.key()))) {
@@ -222,6 +232,18 @@ void PinManager::restoreAllWindows()
     persist();
     updateTimer();
     qInfo("Restored and cleared %d pinned window(s) on manual quit", restored);
+}
+
+void PinManager::setBorderEnabled(bool enabled)
+{
+    m_borderEnabled = enabled;
+    if (enabled) {
+        // Attach borders to all currently pinned windows.
+        for (auto it = m_pinned.cbegin(); it != m_pinned.cend(); ++it)
+            m_borderManager->attach(it.key());
+    } else {
+        m_borderManager->detachAll();
+    }
 }
 
 void PinManager::persist() const

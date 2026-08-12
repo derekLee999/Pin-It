@@ -30,8 +30,10 @@ struct ShortcutConfig {
 
 struct UserSettings {
     bool           enableSound      = true;
+    bool           enableBorder     = true;
     bool           hasSeenTrayNotice = false;
     bool           startWithWindows = false;
+    QString        language;   // empty = system default, "en", "zh_CN"
     ShortcutConfig shortcuts;
 };
 

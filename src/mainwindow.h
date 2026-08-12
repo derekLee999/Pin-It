@@ -4,6 +4,7 @@
 // an "add window" picker, settings, and the system-tray integration.
 //
 #include <QMainWindow>
+#include <QTranslator>
 
 #include "persistence.h"
 
@@ -13,6 +14,8 @@ class QWidget;
 class QSystemTrayIcon;
 class QCheckBox;
 class QLabel;
+class QPushButton;
+class Toast;
 
 class MainWindow : public QMainWindow
 {
@@ -48,17 +51,30 @@ private:
     void buildTray();
     void applyAutostart(bool enabled);
     void fillShortcutRows(QVBoxLayout *scv);   // (re)builds the SHORTCUTS chips
+    void switchLanguage(const QString &lang);
+    void updateLanguageLabel();
 
     PinManager      *m_manager = nullptr;
     QSystemTrayIcon *m_tray = nullptr;
+    Toast           *m_toast = nullptr;
     QVBoxLayout     *m_listLayout = nullptr;
     QLabel          *m_emptyLabel = nullptr;
     QLabel          *m_pinnedHeader = nullptr;
     QWidget         *m_emptyCard = nullptr;
     QVBoxLayout     *m_shortcutsLayout = nullptr;
     QCheckBox       *m_soundBox = nullptr;
+    QCheckBox       *m_borderBox = nullptr;
     QCheckBox       *m_autostartBox = nullptr;
     QLabel          *m_shortcutsLabel = nullptr;
+    QLabel          *m_langLabel = nullptr;
+    QTranslator      m_translator;
+
+    // UI elements that need retranslation.
+    QLabel          *m_tagline = nullptr;
+    QPushButton     *m_addBtn = nullptr;
+    QPushButton     *m_editShortcutsBtn = nullptr;
+    QLabel          *m_emptyText = nullptr;
+    QLabel          *m_useLabel = nullptr;
 
     persistence::UserSettings m_settings;
 };
