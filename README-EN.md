@@ -10,9 +10,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Razee4315/Pin-It/releases/latest"><img src="https://img.shields.io/github/v/release/Razee4315/Pin-It?style=flat-square" alt="Latest release"></a>
+  <a href="https://github.com/derekLee999/Pin-It/releases/latest"><img src="https://img.shields.io/github/v/release/Razee4315/Pin-It?style=flat-square" alt="Latest release"></a>
   <a href="https://github.com/Razee4315/Pin-It/releases"><img src="https://img.shields.io/github/downloads/Razee4315/Pin-It/total?style=flat-square" alt="Downloads"></a>
-  <a href="https://github.com/Razee4315/Pin-It/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?style=flat-square" alt="Platform"></a>
+  <a href="https://github.com/derekLee999/Pin-It/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?style=flat-square" alt="Platform"></a>
   <a href="https://www.qt.io"><img src="https://img.shields.io/badge/built%20with-C%2B%2B%20%26%20Qt%206-41CD52?style=flat-square" alt="Built with C++ and Qt 6"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green?style=flat-square" alt="License: Apache 2.0"></a>
 </p>
@@ -27,7 +27,7 @@ Press `Win+Ctrl+T` and the focused window stays on top of everything else. Slide
 
 ## Download
 
-**[⬇ Download the latest release](https://github.com/Razee4315/Pin-It/releases/latest)** — Windows 10 & 11, free.
+**[⬇ Download the latest release](https://github.com/derekLee999/Pin-It/releases/latest)** — Windows 10 & 11, free.
 
 | File | What it is |
 |------|------------|

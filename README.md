@@ -14,9 +14,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/Razee4315/Pin-It/releases/latest"><img src="https://img.shields.io/github/v/release/Razee4315/Pin-It?style=flat-square" alt="最新版本"></a>
+  <a href="https://github.com/derekLee999/Pin-It/releases/latest"><img src="https://img.shields.io/github/v/release/Razee4315/Pin-It?style=flat-square" alt="最新版本"></a>
   <a href="https://github.com/Razee4315/Pin-It/releases"><img src="https://img.shields.io/github/downloads/Razee4315/Pin-It/total?style=flat-square" alt="下载量"></a>
-  <a href="https://github.com/Razee4315/Pin-It/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?style=flat-square" alt="平台"></a>
+  <a href="https://github.com/derekLee999/Pin-It/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?style=flat-square" alt="平台"></a>
   <a href="https://www.qt.io"><img src="https://img.shields.io/badge/built%20with-C%2B%2B%20%26%20Qt%206-41CD52?style=flat-square" alt="基于 C++ 和 Qt 6 构建"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green?style=flat-square" alt="许可证: Apache 2.0"></a>
 </p>
@@ -31,7 +31,7 @@
 
 ## 下载
 
-**[⬇ 下载最新版本](https://github.com/Razee4315/Pin-It/releases/latest)** — 支持 Windows 10 和 11，完全免费。
+**[⬇ 下载最新版本](https://github.com/derekLee999/Pin-It/releases/latest)** — 支持 Windows 10 和 11，完全免费。
 
 | 文件 | 说明 |
 |------|------|
